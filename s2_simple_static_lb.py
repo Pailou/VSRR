@@ -46,7 +46,7 @@ class SimpleLB(app_manager.RyuApp):
         # self.add_flow(datapath, 0, match, actions)
 
          # Add rule C1 --- LB ---> WS1
-        match = parser.OFPMatch(eth_src=PUB_WS_MAC, eth_dst=C1_IP)
+        match = parser.OFPMatch(eth_src=C1_MAC, eth_dst=C1_IP)
         actions = [parser.OFPActionOutput(2)]  # Assuming client C1 is connected to port 2
         self.add_flow(datapath, 1, match, actions)
 
