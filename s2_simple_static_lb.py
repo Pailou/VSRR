@@ -45,15 +45,30 @@ class SimpleLB(app_manager.RyuApp):
         #                                   ofproto.OFPCML_NO_BUFFER)]
         # self.add_flow(datapath, 0, match, actions)
 
-        # Add rule C1 --- LB ---> WS1
-        # TODO
-        # Add rule * <--- LB --- WS1
-        # TODO
+        # Rule: C1 -> LB -> WS1
+    match = parser.OFPMatch(eth_src='00:00:00:00:00:01', eth_dst=PUB_WS_MAC)
+    actions = [parser.OFPActionOutput(2)]  # Forward to WS1
+    self.add_flow(datapath, 1, match, actions)
 
-        # Add rule C2 --- LB ---> WS2
-        # TODO
-        # Add rule * <--- LB --- WS2
-        # TODO
+    # Rule: C2 -> LB -> WS2
+    match = parser.OFPMatch(eth_src='00:00:00:00:00:02', eth_dst=PUB_WS_MAC)
+    actions = [parser.OFPActionOutput(3)]  # Forward to WS2
+    self.add_flow(datapath, 1, match, actions)
+
+    # Rule: WS1 -> LB -> C1
+    match = parser.OFPMatch(eth_src=WS1_MAC, eth_dst='00:00:00:00:00:01')
+    actions = [parser.OFPActionOutput(1)]  # Forward to C1
+    self.add_flow(datapath, 1, match, actions)
+
+    # Rule: WS2 -> LB -> C2
+    match = parser.OFPMatch(eth_src=WS2_MAC, eth_dst='00:00:00:00:00:02')
+    actions = [parser.OFPActionOutput(1)]  # Forward to C2
+    self.add_flow(datapath, 1, match, actions)
+
+    # Default flood rule (optional)
+    match = parser.OFPMatch()
+    actions = [parser.OFPActionOutput(ofproto.OFPP_FLOOD)]
+    self.add_flow(datapath, 0, match, actions)
 
     # Add entry (instruction apply actions) in flow table 0  
     def add_flow(self, datapath, priority, match, actions, buffer_id=None):
