@@ -91,16 +91,18 @@ class SimpleSwitch2Tables(app_manager.RyuApp):
         # Modify flow tables on switch
         # ==============================
         
-        # Installer une règle pour envoyer des paquets à la table 1
+        # TODO: install forwarding entry in table 1 (avoid FLOOD next time)
         match = parser.OFPMatch(eth_dst=dst)
         actions = [parser.OFPActionOutput(in_port)]
         inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS, actions)]
         self.add_flow(datapath, 1, match, inst, table=1, idle_timeout=0)
+
         
-        # Ajouter une règle dans la table 0 pour rediriger à la table 1 sur un port spécifique
-        match = parser.OFPMatch(in_port=in_port, eth_src=src)
-        instructions = [parser.OFPInstructionGotoTable(table_id=1)]
-        self.add_flow(datapath, 1, match, instructions, table=0, idle_timeout=0)
+        # TODO: install "stop learning" entry in table 0 (avoid PACKET IN next time)
+        match = parser.OFPMatch(in_port=in_port)  
+        inst = [parser.OFPInstructionGotoTable(table_id=1)]  
+        self.add_flow(datapath, 1, match, inst, table=0, idle_timeout=0) 
+
 
        
 
