@@ -40,10 +40,10 @@ class SimpleLB(app_manager.RyuApp):
             return
 
         # install table-miss flow entry
-        # match = parser.OFPMatch()
-        # actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER,
-        #                                   ofproto.OFPCML_NO_BUFFER)]
-        # self.add_flow(datapath, 0, match, actions)
+        match = parser.OFPMatch()
+        actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER, ofproto.OFPCML_NO_BUFFER)]
+        self.add_flow(datapath, 0, match, actions)
+
 
          # Add rule C1 --- LB ---> WS1
         match = parser.OFPMatch(eth_src=C1_MAC, eth_dst=PUB_WS_MAC)
