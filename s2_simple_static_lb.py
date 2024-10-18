@@ -45,25 +45,26 @@ class SimpleLB(app_manager.RyuApp):
         self.add_flow(datapath, 0, match, actions)
 
 
-        # Ajouter règle C1 ---> LB ---> WS1
-        match = parser.OFPMatch(eth_src=C1_IP, eth_dst=PUB_WS_IP)  # C1 vers WS1
+       # Ajouter règle C1 ---> LB ---> WS1
+        match = parser.OFPMatch(ipv4_src=C1_IP, ipv4_dst=PUB_WS_IP)  # C1 vers WS1 (IP)
         actions = [parser.OFPActionOutput(2)]  # Port vers WS1
         self.add_flow(datapath, 1, match, actions)
         
         # Ajouter règle * <--- LB --- WS1 (retour depuis WS1 vers C1)
-        match = parser.OFPMatch(eth_src=PUB_WS_IP, eth_dst=C1_IP)  # WS1 vers C1
+        match = parser.OFPMatch(ipv4_src=PUB_WS_IP, ipv4_dst=C1_IP)  # WS1 vers C1 (IP)
         actions = [parser.OFPActionOutput(1)]  # Port vers C1
         self.add_flow(datapath, 1, match, actions)
         
         # Ajouter règle C2 ---> LB ---> WS2
-        match = parser.OFPMatch(eth_src=C2_IP, eth_dst=PUB_WS_IP)  # C2 vers WS2
+        match = parser.OFPMatch(ipv4_src=C2_IP, ipv4_dst=PUB_WS_IP)  # C2 vers WS2 (IP)
         actions = [parser.OFPActionOutput(3)]  # Port vers WS2
         self.add_flow(datapath, 1, match, actions)
         
         # Ajouter règle * <--- LB --- WS2 (retour depuis WS2 vers C2)
-        match = parser.OFPMatch(eth_src=PUB_WS_IP, eth_dst=C2_IP)  # WS2 vers C2
+        match = parser.OFPMatch(ipv4_src=PUB_WS_IP, ipv4_dst=C2_IP)  # WS2 vers C2 (IP)
         actions = [parser.OFPActionOutput(1)]  # Port vers C2
         self.add_flow(datapath, 1, match, actions)
+
 
 
     # Add entry (instruction apply actions) in flow table 0  
