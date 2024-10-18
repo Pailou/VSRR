@@ -45,25 +45,26 @@ class SimpleLB(app_manager.RyuApp):
         self.add_flow(datapath, 0, match, actions)
 
 
-         # Add rule C1 --- LB ---> WS1
-        match = parser.OFPMatch(eth_src=C1_MAC, eth_dst=PUB_WS_MAC)
-        actions = [parser.OFPActionOutput(2)]  # Assuming client C1 is connected to port 2
+        # Ajouter règle C1 ---> LB ---> WS1
+        match = parser.OFPMatch(eth_src=C1_IP, eth_dst=PUB_WS_IP)  # C1 vers WS1
+        actions = [parser.OFPActionOutput(2)]  # Port vers WS1
+        self.add_flow(datapath, 1, match, actions)
+        
+        # Ajouter règle * <--- LB --- WS1 (retour depuis WS1 vers C1)
+        match = parser.OFPMatch(eth_src=PUB_WS_IP, eth_dst=C1_IP)  # WS1 vers C1
+        actions = [parser.OFPActionOutput(1)]  # Port vers C1
+        self.add_flow(datapath, 1, match, actions)
+        
+        # Ajouter règle C2 ---> LB ---> WS2
+        match = parser.OFPMatch(eth_src=C2_IP, eth_dst=PUB_WS_IP)  # C2 vers WS2
+        actions = [parser.OFPActionOutput(3)]  # Port vers WS2
+        self.add_flow(datapath, 1, match, actions)
+        
+        # Ajouter règle * <--- LB --- WS2 (retour depuis WS2 vers C2)
+        match = parser.OFPMatch(eth_src=PUB_WS_IP, eth_dst=C2_IP)  # WS2 vers C2
+        actions = [parser.OFPActionOutput(1)]  # Port vers C2
         self.add_flow(datapath, 1, match, actions)
 
-        # Add rule * <--- LB --- WS1 (return traffic from WS1 to any client)
-        match = parser.OFPMatch(eth_src=PUB_WS_MAC, eth_dst=C1_MAC)
-        actions = [parser.OFPActionOutput(1)]  # Assuming switch to client is port 1
-        self.add_flow(datapath, 1, match, actions)
-
-        # Add rule C2 --- LB ---> WS2
-        match = parser.OFPMatch(eth_src=C2_MAC, eth_dst=PUB_WS_MAC)
-        actions = [parser.OFPActionOutput(3)]  # Assuming client C2 is connected to port 3
-        self.add_flow(datapath, 1, match, actions)
-
-        # Add rule * <--- LB --- WS2 (return traffic from WS2 to any client)
-        match = parser.OFPMatch(eth_src=PUB_WS_MAC, eth_dst=C2_MAC)
-        actions = [parser.OFPActionOutput(1)]  # Assuming switch to client is port 1
-        self.add_flow(datapath, 1, match, actions)
 
     # Add entry (instruction apply actions) in flow table 0  
     def add_flow(self, datapath, priority, match, actions, buffer_id=None):
