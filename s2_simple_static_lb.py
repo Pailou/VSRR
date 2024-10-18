@@ -46,22 +46,22 @@ class SimpleLB(app_manager.RyuApp):
         # self.add_flow(datapath, 0, match, actions)
 
          # Add rule C1 --- LB ---> WS1
-        match = parser.OFPMatch(eth_src=C1_MAC, eth_dst=C1_IP)
+        match = parser.OFPMatch(eth_src=C1_MAC, eth_dst=PUB_WS_MAC)
         actions = [parser.OFPActionOutput(2)]  # Assuming client C1 is connected to port 2
         self.add_flow(datapath, 1, match, actions)
 
         # Add rule * <--- LB --- WS1 (return traffic from WS1 to any client)
-        match = parser.OFPMatch(eth_src=WS1_MAC, eth_dst=PUB_WS_MAC)
+        match = parser.OFPMatch(eth_src=PUB_WS_MAC, eth_dst=C1_MAC)
         actions = [parser.OFPActionOutput(1)]  # Assuming switch to client is port 1
         self.add_flow(datapath, 1, match, actions)
 
         # Add rule C2 --- LB ---> WS2
-        match = parser.OFPMatch(eth_src=PUB_WS_MAC, eth_dst=C2_IP)
+        match = parser.OFPMatch(eth_src=C2_MAC, eth_dst=PUB_WS_MAC)
         actions = [parser.OFPActionOutput(3)]  # Assuming client C2 is connected to port 3
         self.add_flow(datapath, 1, match, actions)
 
         # Add rule * <--- LB --- WS2 (return traffic from WS2 to any client)
-        match = parser.OFPMatch(eth_src=WS2_MAC, eth_dst=PUB_WS_MAC)
+        match = parser.OFPMatch(eth_src=PUB_WS_MAC, eth_dst=C2_MAC)
         actions = [parser.OFPActionOutput(1)]  # Assuming switch to client is port 1
         self.add_flow(datapath, 1, match, actions)
 
