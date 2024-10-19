@@ -31,24 +31,22 @@ class DynamicLB(app_manager.RyuApp):
         # Dictionnaire pour garder la trace des serveurs actifs
         self.servers = {WS1_IP: WS1_MAC, WS2_IP: WS2_MAC}
         self.client_requests = {C1_IP: 0, C2_IP: 0}  # Compte les requêtes des clients
+        self.token = 1  # Initialiser le token
 
     @set_ev_cls(ofp_event.EventOFPStateChange, MAIN_DISPATCHER)
     def state_change_handler(self, ev):
         datapath = ev.datapath
         self.logger.info("Changement d'état pour le datapath: %s", datapath.id)
-        # Ici, vous pouvez ajouter de la logique pour gérer l'activation/désactivation des serveurs.
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
         datapath = ev.msg.datapath
-        ofproto = datapath.ofproto
-        parser = datapath.ofproto_parser
+        self.logger.info("Switch %s connecté", datapath.id)
 
         # Ne contrôler que le switch S2
         if datapath.id != 2:
             return
 
-        # Ajouter des règles pour chaque client
         self.add_load_balancing_rules(datapath)
 
     def add_load_balancing_rules(self, datapath):
@@ -67,21 +65,26 @@ class DynamicLB(app_manager.RyuApp):
         self.add_flow(datapath, 1, match_c2, actions_c2)
 
     def select_server(self, client_ip):
-        # Sélectionne un serveur basé sur un algorithme simple (ex. Round Robin)
-        # Ici, nous pourrions aussi tenir compte des requêtes en cours ou des performances
-        if self.client_requests[client_ip] % 2 == 0:
-            self.client_requests[client_ip] += 1
+        # Sélectionne un serveur basé sur le token
+        if self.token == 1:
+            # 1) Ajouter une règle de relayage vers WS1
+            # 2) Ajouter une règle de retour repositionnant l'adresse publique du serveur web
+            # 3) Mettre à jour le token
+            self.token = 2  # Passer au serveur suivant
             return [
                 self.datapath.ofproto_parser.OFPActionSetField(eth_dst=WS1_MAC),
                 self.datapath.ofproto_parser.OFPActionSetField(ipv4_dst=WS1_IP),
-                self.datapath.ofproto_parser.OFPActionOutput(2)
+                self.datapath.ofproto_parser.OFPActionOutput(2)  # Port de WS1
             ]
         else:
-            self.client_requests[client_ip] += 1
+            # 1) Ajouter une règle de relayage vers WS2
+            # 2) Ajouter une règle de retour repositionnant l'adresse publique du serveur web
+            # 3) Mettre à jour le token
+            self.token = 1  # Retourner au serveur précédent
             return [
                 self.datapath.ofproto_parser.OFPActionSetField(eth_dst=WS2_MAC),
                 self.datapath.ofproto_parser.OFPActionSetField(ipv4_dst=WS2_IP),
-                self.datapath.ofproto_parser.OFPActionOutput(3)
+                self.datapath.ofproto_parser.OFPActionOutput(3)  # Port de WS2
             ]
 
     def add_flow(self, datapath, priority, match, actions, buffer_id=None):
