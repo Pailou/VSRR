@@ -14,7 +14,7 @@ class DynamicLoadBalancer(app_manager.RyuApp):
         self.token = 1  # Variable pour le round-robin
         self.flows = {}  # Dictionnaire pour stocker les flux actifs
 
-    @set_ev_cls(ofp_event.EventOFPStateChange, CONFIG_DISPATCHER)
+    @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
         msg = ev.msg
         datapath = msg.datapath
@@ -24,7 +24,7 @@ class DynamicLoadBalancer(app_manager.RyuApp):
         # Installer un flux par défaut pour le traitement des paquets entrants
         match = parser.OFPMatch()  # Crée un match vide pour tous les paquets
         actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER)]  # Redirige vers le contrôleur
-        
+
         # Afficher les types des arguments pour le débogage
         print(f"Adding flow: datapath={datapath}, priority=0, match={match}, actions={actions}")
 
@@ -60,20 +60,24 @@ class DynamicLoadBalancer(app_manager.RyuApp):
         eth_pkt = pkt.get_protocol(ethernet.ethernet)
         
         if eth_pkt is None:
+            print("Received non-ethernet packet, ignoring.")
             return
         
         ip_pkt_list = pkt.get_protocols(ipv4.ipv4)
         
         if not ip_pkt_list:
+            print("No IPv4 packet found, ignoring.")
             return
         
         ip_pkt = ip_pkt_list[0]
         src_ip = ip_pkt.src
         dst_ip = ip_pkt.dst
 
+        print(f"Packet from {src_ip} to {dst_ip} received on port {in_port}")
+
         # On vérifie si une règle existe déjà pour cette adresse IP source
         if src_ip not in self.flows:
-            # Pas de règle existante, ajout d'une nouvelle règle
+            print(f"No existing flow for source IP {src_ip}, adding new flow.")
             self._add_flow(datapath, src_ip, in_port)
 
         # Réinjecter le paquet dans le flux de données
