@@ -32,6 +32,7 @@ class DynamicLB(app_manager.RyuApp):
         self.servers = {WS1_IP: WS1_MAC, WS2_IP: WS2_MAC}
         self.client_requests = {C1_IP: 0, C2_IP: 0}  # Compte les requêtes des clients
         self.token = 1  # Initialiser le token
+        self.datapath = None  # Initialiser datapath
 
     @set_ev_cls(ofp_event.EventOFPStateChange, MAIN_DISPATCHER)
     def state_change_handler(self, ev):
@@ -40,14 +41,14 @@ class DynamicLB(app_manager.RyuApp):
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
-        datapath = ev.msg.datapath
-        self.logger.info("Switch %s connecté", datapath.id)
+        self.datapath = ev.msg.datapath  # Stocker le datapath
+        self.logger.info("Switch %s connecté", self.datapath.id)
 
         # Ne contrôler que le switch S2
-        if datapath.id != 2:
+        if self.datapath.id != 2:
             return
 
-        self.add_load_balancing_rules(datapath)
+        self.add_load_balancing_rules(self.datapath)
 
     def add_load_balancing_rules(self, datapath):
         # Règles pour C1
