@@ -26,7 +26,7 @@ class DynamicLoadBalancer(app_manager.RyuApp):
         actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER)]  # Redirige vers le contrôleur
 
         # Afficher les types des arguments pour le débogage
-        print(f"Adding flow: datapath={datapath}, priority=0, match={match}, actions={actions}")
+        print(f"Adding default flow: datapath={datapath}, priority=0, match={match}, actions={actions}")
 
         # Ajouter un flux par défaut
         self.add_flow(datapath, 0, match, actions)
@@ -40,8 +40,8 @@ class DynamicLoadBalancer(app_manager.RyuApp):
         # Vérifiez que les paramètres sont du bon type
         print(f"Parameters for add_flow: priority={priority}, match={match}, actions={actions}, buffer_id={buffer_id}, idle_timeout={idle_timeout}")
 
-        # Créer le flux avec un identifiant de tampon si fourni
         try:
+            # Créer le flux avec un identifiant de tampon si fourni
             if buffer_id is not None:
                 flow_mod = parser.OFPFlowMod(datapath=datapath, priority=priority, match=match,
                                               instructions=inst, buffer_id=buffer_id, idle_timeout=idle_timeout)
@@ -97,6 +97,11 @@ class DynamicLoadBalancer(app_manager.RyuApp):
         else:
             out_port = 2  # Port vers WS2
             self.token = 1  # Passer au port précédent
+
+        # Vérifiez que les ports de sortie sont valides
+        if out_port not in [1, 2]:  # Changez ces valeurs en fonction de votre configuration de commutateur
+            print(f"Invalid out_port: {out_port}. Must be 1 or 2.")
+            return
 
         # Créer la correspondance pour le flux
         match = parser.OFPMatch(eth_type=0x0800, ipv4_src=src_ip)
