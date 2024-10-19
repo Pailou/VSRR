@@ -35,6 +35,7 @@ class DynamicLoadBalancer(app_manager.RyuApp):
         if datapath.id != 2:
             return
 
+        # Installer une règle de flux par défaut pour envoyer les paquets au contrôleur
         match = parser.OFPMatch()
         actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER, ofproto.OFPCML_NO_BUFFER)]
         self.add_flow(datapath, 0, match, actions)
@@ -51,30 +52,33 @@ class DynamicLoadBalancer(app_manager.RyuApp):
         eth = pkt.get_protocols(ethernet.ethernet)[0]
 
         if eth.ethertype == ether_types.ETH_TYPE_LLDP:
-            return
+            return  # Ignorer les paquets LLDP
 
         src = eth.src
         dst = eth.dst
 
+        # Vérifier si le paquet est destiné au serveur public
         if dst == PUB_WS_MAC:
+            # Choisir le serveur suivant en utilisant round-robin
             if self.token == 1:
                 actions = [
                     parser.OFPActionSetField(eth_dst=WS1_MAC),
                     parser.OFPActionSetField(ipv4_dst=WS1_IP),
-                    parser.OFPActionOutput(2)
+                    parser.OFPActionOutput(2)  # Sortie vers WS1
                 ]
-                self.token = 2
+                self.token = 2  # Passer au serveur WS2 pour le prochain paquet
             else:
                 actions = [
                     parser.OFPActionSetField(eth_dst=WS2_MAC),
                     parser.OFPActionSetField(ipv4_dst=WS2_IP),
-                    parser.OFPActionOutput(3)
+                    parser.OFPActionOutput(3)  # Sortie vers WS2
                 ]
-                self.token = 1
+                self.token = 1  # Passer au serveur WS1 pour le prochain paquet
             
             match = parser.OFPMatch(eth_type=ether_types.ETH_TYPE_IP, ipv4_dst=PUB_WS_IP)
             self.add_flow(datapath, 1, match, actions)
 
+        # Envoyer le paquet au port d'entrée
         self.send_packet(datapath, in_port, msg.data)
         
     def send_packet(self, datapath, in_port, data):
