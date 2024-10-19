@@ -14,42 +14,42 @@ class DynamicLoadBalancer(app_manager.RyuApp):
         self.token = 1  # Variable pour le round-robin
         self.flows = {}  # Dictionnaire pour stocker les flux actifs
 
+    @set_ev_cls(ofp_event.EventOFPStateChange, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
-    msg = ev.msg
-    datapath = msg.datapath
-    ofproto = datapath.ofproto
-    parser = datapath.ofproto_parser
+        msg = ev.msg
+        datapath = msg.datapath
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
 
-    # Installer un flux par défaut pour le traitement des paquets entrants
-    match = parser.OFPMatch()  # Crée un match vide pour tous les paquets
-    actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER)]  # Redirige vers le contrôleur
-    
-    # Afficher les types des arguments pour le débogage
-    print(f"Adding flow: datapath={datapath}, priority=0, match={match}, actions={actions}")
+        # Installer un flux par défaut pour le traitement des paquets entrants
+        match = parser.OFPMatch()  # Crée un match vide pour tous les paquets
+        actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER)]  # Redirige vers le contrôleur
+        
+        # Afficher les types des arguments pour le débogage
+        print(f"Adding flow: datapath={datapath}, priority=0, match={match}, actions={actions}")
 
-    # Ajouter un flux par défaut
-    self.add_flow(datapath, 0, match, actions, idle_timeout=None)
+        # Ajouter un flux par défaut
+        self.add_flow(datapath, 0, match, actions, idle_timeout=None)
 
-def add_flow(self, datapath, priority, match, actions, buffer_id=None, idle_timeout=None):
-    ofproto = datapath.ofproto
-    parser = datapath.ofproto_parser
+    def add_flow(self, datapath, priority, match, actions, buffer_id=None, idle_timeout=None):
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
 
-    inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS, actions)]
+        inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS, actions)]
 
-    # Vérifiez que les paramètres sont du bon type
-    print(f"Parameters for add_flow: priority={priority}, match={match}, actions={actions}, buffer_id={buffer_id}, idle_timeout={idle_timeout}")
+        # Vérifiez que les paramètres sont du bon type
+        print(f"Parameters for add_flow: priority={priority}, match={match}, actions={actions}, buffer_id={buffer_id}, idle_timeout={idle_timeout}")
 
-    # Créer le flux avec un identifiant de tampon si fourni
-    if buffer_id:
-        flow_mod = parser.OFPFlowMod(datapath=datapath, priority=priority, match=match,
-                                      instructions=inst, buffer_id=buffer_id, idle_timeout=idle_timeout)
-    else:
-        flow_mod = parser.OFPFlowMod(datapath=datapath, priority=priority, match=match,
-                                      instructions=inst, idle_timeout=idle_timeout)
+        # Créer le flux avec un identifiant de tampon si fourni
+        if buffer_id:
+            flow_mod = parser.OFPFlowMod(datapath=datapath, priority=priority, match=match,
+                                          instructions=inst, buffer_id=buffer_id, idle_timeout=idle_timeout)
+        else:
+            flow_mod = parser.OFPFlowMod(datapath=datapath, priority=priority, match=match,
+                                          instructions=inst, idle_timeout=idle_timeout)
 
-    # Envoyer le message de flux au commutateur
-    datapath.send_msg(flow_mod)
-
+        # Envoyer le message de flux au commutateur
+        datapath.send_msg(flow_mod)
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
