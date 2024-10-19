@@ -29,7 +29,7 @@ class DynamicLoadBalancer(app_manager.RyuApp):
         print(f"Adding flow: datapath={datapath}, priority=0, match={match}, actions={actions}")
 
         # Ajouter un flux par défaut
-        self.add_flow(datapath, 0, match, actions, idle_timeout=None)
+        self.add_flow(datapath, 0, match, actions)
 
     def add_flow(self, datapath, priority, match, actions, buffer_id=None, idle_timeout=None):
         ofproto = datapath.ofproto
@@ -41,15 +41,18 @@ class DynamicLoadBalancer(app_manager.RyuApp):
         print(f"Parameters for add_flow: priority={priority}, match={match}, actions={actions}, buffer_id={buffer_id}, idle_timeout={idle_timeout}")
 
         # Créer le flux avec un identifiant de tampon si fourni
-        if buffer_id:
-            flow_mod = parser.OFPFlowMod(datapath=datapath, priority=priority, match=match,
-                                          instructions=inst, buffer_id=buffer_id, idle_timeout=idle_timeout)
-        else:
-            flow_mod = parser.OFPFlowMod(datapath=datapath, priority=priority, match=match,
-                                          instructions=inst, idle_timeout=idle_timeout)
+        try:
+            if buffer_id is not None:
+                flow_mod = parser.OFPFlowMod(datapath=datapath, priority=priority, match=match,
+                                              instructions=inst, buffer_id=buffer_id, idle_timeout=idle_timeout)
+            else:
+                flow_mod = parser.OFPFlowMod(datapath=datapath, priority=priority, match=match,
+                                              instructions=inst, idle_timeout=idle_timeout)
 
-        # Envoyer le message de flux au commutateur
-        datapath.send_msg(flow_mod)
+            # Envoyer le message de flux au commutateur
+            datapath.send_msg(flow_mod)
+        except Exception as e:
+            print(f"Error adding flow: {e}")
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
