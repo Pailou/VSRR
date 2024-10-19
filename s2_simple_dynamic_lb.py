@@ -39,7 +39,7 @@ class DynamicLoadBalancer(app_manager.RyuApp):
         actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER, ofproto.OFPCML_NO_BUFFER)]
         self.add_flow(datapath, 0, match, actions)
 
-     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
+    @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
         msg = ev.msg
         datapath = msg.datapath
@@ -77,7 +77,6 @@ class DynamicLoadBalancer(app_manager.RyuApp):
 
         self.send_packet(datapath, in_port, msg.data)
         
-
     def send_packet(self, datapath, in_port, data):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
