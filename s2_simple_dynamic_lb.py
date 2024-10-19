@@ -23,7 +23,7 @@ class DynamicLoadBalancer(app_manager.RyuApp):
 
         # Installer un flux par défaut pour le traitement des paquets entrants
         match = parser.OFPMatch()
-        actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER, ofproto.OFPP_NO_BUFFER)]
+        actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER)]
         self.add_flow(datapath, 0, match, actions)
 
     def add_flow(self, datapath, priority, match, actions, buffer_id=None, idle_timeout=None):
