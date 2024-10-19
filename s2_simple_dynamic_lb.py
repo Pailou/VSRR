@@ -7,17 +7,18 @@ from ryu.base import app_manager
 from ryu.controller import ofp_event
 from ryu.controller.handler import CONFIG_DISPATCHER, MAIN_DISPATCHER
 from ryu.controller.handler import set_ev_cls
+from ryu.ofproto import ofproto_v1_3
 from ryu.lib.packet import packet
 from ryu.lib.packet import ethernet
-from ryu.ofproto import ofproto_v1_3
+from ryu.lib.packet import ether_types
+from ryu.lib.packet import ipv4  # Importer le paquet IPv4
 
-# Adresses IP et MAC des composants
-PUB_WS_IP = '10.0.0.10'
+PUB_WS_IP  = '10.0.0.10'
 PUB_WS_MAC = '00:11:22:33:44:55'
 
-WS1_IP = '10.0.0.11'
+WS1_IP  = '10.0.0.11'
 WS1_MAC = '00:00:00:00:00:11'
-WS2_IP = '10.0.0.22'
+WS2_IP  = '10.0.0.22'
 WS2_MAC = '00:00:00:00:00:22'
 
 C1_IP = '10.0.0.1'
@@ -28,67 +29,75 @@ class DynamicLB(app_manager.RyuApp):
 
     def __init__(self, *args, **kwargs):
         super(DynamicLB, self).__init__(*args, **kwargs)
-        # Dictionnaire pour garder la trace des serveurs actifs
-        self.servers = {WS1_IP: WS1_MAC, WS2_IP: WS2_MAC}
-        self.client_requests = {C1_IP: 0, C2_IP: 0}  # Compte les requêtes des clients
-        self.token = 1  # Initialiser le token
-        self.datapath = None  # Initialiser datapath
-
-    @set_ev_cls(ofp_event.EventOFPStateChange, MAIN_DISPATCHER)
-    def state_change_handler(self, ev):
-        datapath = ev.datapath
-        self.logger.info("Changement d'état pour le datapath: %s", datapath.id)
+        self.token = 1  # Initialiser le token pour le round robin
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
-        self.datapath = ev.msg.datapath  # Stocker le datapath
-        self.logger.info("Switch %s connecté", self.datapath.id)
+        datapath = ev.msg.datapath
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
 
-        # Ne contrôler que le switch S2
-        if self.datapath.id != 2:
+        # Control only S2
+        if datapath.id != 2:
             return
 
-        self.add_load_balancing_rules(self.datapath)
+        # Ajouter une règle par défaut pour renvoyer les paquets non traités vers le contrôleur
+        match = parser.OFPMatch(eth_type=ether_types.ETH_TYPE_IP)
+        actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER, ofproto.OFPCML_NO_BUFFER)]
+        self.add_flow(datapath, 0, match, actions)
 
-    def add_load_balancing_rules(self, datapath):
-        # Règles pour C1
-        match_c1 = datapath.ofproto_parser.OFPMatch(
-            in_port=1, eth_type=0x0800, ipv4_dst=PUB_WS_IP, ipv4_src=C1_IP
-        )
-        actions_c1 = self.select_server(C1_IP)  # Choisir le serveur pour C1
-        self.add_flow(datapath, 1, match_c1, actions_c1)
+    @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
+    def packet_in_handler(self, ev):
+        msg = ev.msg
+        datapath = msg.datapath
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
 
-        # Règles pour C2
-        match_c2 = datapath.ofproto_parser.OFPMatch(
-            in_port=1, eth_type=0x0800, ipv4_dst=PUB_WS_IP, ipv4_src=C2_IP
-        )
-        actions_c2 = self.select_server(C2_IP)  # Choisir le serveur pour C2
-        self.add_flow(datapath, 1, match_c2, actions_c2)
+        in_port = msg.match['in_port']
+        pkt = packet.Packet(msg.data)
+        eth_pkt = pkt.get_protocol(ethernet.ethernet)
 
-    def select_server(self, client_ip):
-        # Sélectionne un serveur basé sur le token
-        if self.token == 1:
-            # 1) Ajouter une règle de relayage vers WS1
-            # 2) Ajouter une règle de retour repositionnant l'adresse publique du serveur web
-            # 3) Mettre à jour le token
-            self.token = 2  # Passer au serveur suivant
-            return [
-                self.datapath.ofproto_parser.OFPActionSetField(eth_dst=WS1_MAC),
-                self.datapath.ofproto_parser.OFPActionSetField(ipv4_dst=WS1_IP),
-                self.datapath.ofproto_parser.OFPActionOutput(2)  # Port de WS1
-            ]
-        else:
-            # 1) Ajouter une règle de relayage vers WS2
-            # 2) Ajouter une règle de retour repositionnant l'adresse publique du serveur web
-            # 3) Mettre à jour le token
-            self.token = 1  # Retourner au serveur précédent
-            return [
-                self.datapath.ofproto_parser.OFPActionSetField(eth_dst=WS2_MAC),
-                self.datapath.ofproto_parser.OFPActionSetField(ipv4_dst=WS2_IP),
-                self.datapath.ofproto_parser.OFPActionOutput(3)  # Port de WS2
-            ]
+        if eth_pkt and eth_pkt.ethertype == ether_types.ETH_TYPE_IP:
+            ip_pkt = pkt.get_protocol(ipv4.ipv4)
+            if ip_pkt is not None:
+                src_ip = ip_pkt.src  # Récupérer l'adresse source IP
+                dst_ip = ip_pkt.dst  # Récupérer l'adresse de destination IP
 
-    def add_flow(self, datapath, priority, match, actions, buffer_id=None):
+                # Logique de répartition
+                if src_ip == C1_IP or src_ip == C2_IP:
+                    # 1) Créer une correspondance pour le flux
+                    match = parser.OFPMatch(eth_type=ether_types.ETH_TYPE_IP, ipv4_src=src_ip)
+
+                    if self.token == 1:
+                        # 1) Ajouter une règle de relayage vers WS1
+                        actions = [parser.OFPActionOutput(1)]  # Port vers WS1
+                        # 2) Ajouter une règle de retour repositionnant l'adresse publique du serveur web
+                        actions_return = [parser.OFPActionSetField(eth_dst=PUB_WS_MAC),
+                                          parser.OFPActionOutput(in_port)]
+                        # 3) Mettre à jour le token
+                        self.token = 2
+                    else:
+                        # 1) Ajouter une règle de relayage vers WS2
+                        actions = [parser.OFPActionOutput(2)]  # Port vers WS2
+                        # 2) Ajouter une règle de retour repositionnant l'adresse publique du serveur web
+                        actions_return = [parser.OFPActionSetField(eth_dst=PUB_WS_MAC),
+                                          parser.OFPActionOutput(in_port)]
+                        # 3) Mettre à jour le token
+                        self.token = 1
+
+                    # Ajouter la règle de flux avec idle_timeout
+                    self.add_flow(datapath, 1, match, actions, idle_timeout=10)
+
+                    # Ajouter la règle de retour
+                    self.add_flow(datapath, 1, match, actions_return, idle_timeout=10)
+
+                    # Réinjecter le paquet d'origine
+                    out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
+                                               in_port=in_port, actions=actions)
+                    datapath.send_msg(out)
+
+    # Ajouter une entrée dans la table de flux
+    def add_flow(self, datapath, priority, match, actions, buffer_id=None, idle_timeout=0):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
 
@@ -96,8 +105,8 @@ class DynamicLB(app_manager.RyuApp):
         if buffer_id:
             mod = parser.OFPFlowMod(datapath=datapath, buffer_id=buffer_id,
                                     priority=priority, match=match,
-                                    instructions=inst)
+                                    instructions=inst, idle_timeout=idle_timeout)
         else:
             mod = parser.OFPFlowMod(datapath=datapath, priority=priority,
-                                    match=match, instructions=inst)
+                                    match=match, instructions=inst, idle_timeout=idle_timeout)
         datapath.send_msg(mod)
