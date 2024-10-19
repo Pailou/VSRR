@@ -79,7 +79,7 @@ class DynamicLoadBalancer(app_manager.RyuApp):
             self.add_flow(datapath, 1, match, actions)
 
         # Envoyer le paquet au port d'entrée
-        self.send_packet(datapath, in_port, msg.data)
+        #self.send_packet(datapath, in_port, msg.data)
         
     def send_packet(self, datapath, in_port, data):
         ofproto = datapath.ofproto
