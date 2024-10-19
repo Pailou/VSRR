@@ -1,141 +1,103 @@
 from ryu.base import app_manager
 from ryu.controller import ofp_event
-from ryu.controller.handler import CONFIG_DISPATCHER, MAIN_DISPATCHER, set_ev_cls
-from ryu.lib.packet import packet
-from ryu.lib.packet import ethernet, ipv4
+from ryu.controller.handler import CONFIG_DISPATCHER, MAIN_DISPATCHER
+from ryu.controller.handler import set_ev_cls
 from ryu.ofproto import ofproto_v1_3
+from ryu.lib.packet import packet
+from ryu.lib.packet import ethernet
+from ryu.lib.packet import ether_types
+from ryu.lib.packet import ipv4
 
+# Public server IP and MAC
+PUB_WS_IP  = '10.0.0.10'
+PUB_WS_MAC = '00:11:22:33:44:55'
+
+# Web servers WS1 and WS2 IP and MAC
+WS1_IP  = '10.0.0.11'
+WS1_MAC = '00:00:00:00:00:11'
+WS2_IP  = '10.0.0.22'
+WS2_MAC = '00:00:00:00:00:22'
 
 class DynamicLoadBalancer(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
 
     def __init__(self, *args, **kwargs):
         super(DynamicLoadBalancer, self).__init__(*args, **kwargs)
-        self.token = 1  # Variable pour le round-robin
-        self.flows = {}  # Dictionnaire pour stocker les flux actifs
+        self.mac_to_port = {}
+        self.token = 1  # Token pour round robin (1 -> WS1, 2 -> WS2)
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
+        datapath = ev.msg.datapath
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
+
+        if datapath.id != 2:
+            return
+
+        match = parser.OFPMatch()
+        actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER, ofproto.OFPCML_NO_BUFFER)]
+        self.add_flow(datapath, 0, match, actions)
+
+     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
+    def _packet_in_handler(self, ev):
         msg = ev.msg
         datapath = msg.datapath
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
+        in_port = msg.match['in_port']
 
-        # Installer un flux par défaut pour le traitement des paquets entrants
-        match = parser.OFPMatch()  # Crée un match vide pour tous les paquets
-        actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER)]  # Redirige vers le contrôleur
+        pkt = packet.Packet(msg.data)
+        eth = pkt.get_protocols(ethernet.ethernet)[0]
 
-        # Afficher les types des arguments pour le débogage
-        print(f"Adding default flow: datapath={datapath}, priority=0, match={match}, actions={actions}")
+        if eth.ethertype == ether_types.ETH_TYPE_LLDP:
+            return
 
-        # Ajouter un flux par défaut
-        self.add_flow(datapath, 0, match, actions)
+        src = eth.src
+        dst = eth.dst
 
-    def add_flow(self, datapath, priority, match, actions, buffer_id=None, idle_timeout=None):
+        if dst == PUB_WS_MAC:
+            if self.token == 1:
+                actions = [
+                    parser.OFPActionSetField(eth_dst=WS1_MAC),
+                    parser.OFPActionSetField(ipv4_dst=WS1_IP),
+                    parser.OFPActionOutput(2)
+                ]
+                self.token = 2
+            else:
+                actions = [
+                    parser.OFPActionSetField(eth_dst=WS2_MAC),
+                    parser.OFPActionSetField(ipv4_dst=WS2_IP),
+                    parser.OFPActionOutput(3)
+                ]
+                self.token = 1
+            
+            match = parser.OFPMatch(eth_type=ether_types.ETH_TYPE_IP, ipv4_dst=PUB_WS_IP)
+            self.add_flow(datapath, 1, match, actions)
+
+        self.send_packet(datapath, in_port, msg.data)
+        
+
+    def send_packet(self, datapath, in_port, data):
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
+        actions = [parser.OFPActionOutput(in_port)]
+        
+        # Créer le message PacketOut
+        out = parser.OFPPacketOut(datapath=datapath, buffer_id=ofproto.OFP_NO_BUFFER,
+                                   in_port=ofproto.OFPP_CONTROLLER, actions=actions, data=data)
+        datapath.send_msg(out)
+
+    def add_flow(self, datapath, priority, match, actions, buffer_id=None, idle_timeout=30):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
 
         inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS, actions)]
-
-        # Vérifiez que les paramètres sont du bon type
-        print(f"Parameters for add_flow: priority={priority}, match={match}, actions={actions}, buffer_id={buffer_id}, idle_timeout={idle_timeout}")
-
-        # Validation des types
-        if not isinstance(priority, int) or priority < 0:
-            print(f"Invalid priority: {priority}")
-            return
-
-        if buffer_id is not None and not isinstance(buffer_id, int):
-            print(f"Invalid buffer_id: {buffer_id}. It must be an integer or None.")
-            return
-
-        if idle_timeout is not None and not isinstance(idle_timeout, int):
-            print(f"Invalid idle_timeout: {idle_timeout}. It must be an integer or None.")
-            return
-
-        try:
-            # Créer le flux avec un identifiant de tampon si fourni
-            if buffer_id is not None:
-                flow_mod = parser.OFPFlowMod(datapath=datapath, priority=priority, match=match,
-                                              instructions=inst, buffer_id=buffer_id, idle_timeout=idle_timeout)
-            else:
-                flow_mod = parser.OFPFlowMod(datapath=datapath, priority=priority, match=match,
-                                              instructions=inst, idle_timeout=idle_timeout)
-
-            # Envoyer le message de flux au commutateur
-            datapath.send_msg(flow_mod)
-        except Exception as e:
-            print(f"Error adding flow: {e}")
-
-    @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
-    def _packet_in_handler(self, ev):
-        msg = ev.msg
-        datapath = msg.datapath
-        in_port = msg.match['in_port']
-        pkt = packet.Packet(msg.data)
-        eth_pkt = pkt.get_protocol(ethernet.ethernet)
         
-        if eth_pkt is None:
-            print("Received non-ethernet packet, ignoring.")
-            return
-        
-        ip_pkt_list = pkt.get_protocols(ipv4.ipv4)
-        
-        if not ip_pkt_list:
-            print("No IPv4 packet found, ignoring.")
-            return
-        
-        ip_pkt = ip_pkt_list[0]
-        src_ip = ip_pkt.src
-        dst_ip = ip_pkt.dst
-
-        print(f"Packet from {src_ip} to {dst_ip} received on port {in_port}")
-
-        # On vérifie si une règle existe déjà pour cette adresse IP source
-        if src_ip not in self.flows:
-            print(f"No existing flow for source IP {src_ip}, adding new flow.")
-            self._add_flow(datapath, src_ip, in_port)
-
-        # Réinjecter le paquet dans le flux de données
-        self._send_packet(datapath, in_port, msg.data)
-
-    def _add_flow(self, datapath, src_ip, in_port):
-        ofproto = datapath.ofproto
-        parser = datapath.ofproto_parser
-
-        # Déterminer le port de sortie selon le token
-        if self.token == 1:
-            out_port = 1  # Port vers WS1
-            self.token = 2  # Passer au prochain port
+        if buffer_id:
+            mod = parser.OFPFlowMod(datapath=datapath, buffer_id=buffer_id, priority=priority, match=match, 
+                                    instructions=inst, idle_timeout=idle_timeout)
         else:
-            out_port = 2  # Port vers WS2
-            self.token = 1  # Passer au port précédent
-
-        # Vérifiez que les ports de sortie sont valides
-        if out_port not in [1, 2]:  # Changez ces valeurs en fonction de votre configuration de commutateur
-            print(f"Invalid out_port: {out_port}. Must be 1 or 2.")
-            return
-
-        # Créer la correspondance pour le flux
-        match = parser.OFPMatch(eth_type=0x0800, ipv4_src=src_ip)
-        
-        # Créer l'action de sortie
-        actions = [parser.OFPActionOutput(out_port)]
-
-        # Ajouter la règle avec un idle_timeout de 30 secondes
-        self.add_flow(datapath, 1, match, actions, idle_timeout=30)
-        
-        # Pour la règle de retour (adresse publique), ajout d'une autre règle
-        reverse_match = parser.OFPMatch(eth_type=0x0800, ipv4_dst=src_ip)
-        reverse_actions = [parser.OFPActionOutput(in_port)]
-        self.add_flow(datapath, 1, reverse_match, reverse_actions, idle_timeout=30)
-
-    def _send_packet(self, datapath, out_port, data):
-        ofproto = datapath.ofproto
-        parser = datapath.ofproto_parser
-        
-        # Créer un message PacketOut pour réinjecter le paquet
-        actions = [parser.OFPActionOutput(out_port)]
-        out = parser.OFPPacketOut(datapath=datapath, buffer_id=ofproto.OFP_NO_BUFFER,
-                                   in_port=ofproto.OFPP_CONTROLLER, actions=actions, data=data)
-        datapath.send_msg(out)
+            mod = parser.OFPFlowMod(datapath=datapath, priority=priority, match=match, 
+                                    instructions=inst, idle_timeout=idle_timeout)
+        datapath.send_msg(mod)
