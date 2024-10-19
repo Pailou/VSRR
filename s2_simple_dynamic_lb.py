@@ -40,6 +40,19 @@ class DynamicLoadBalancer(app_manager.RyuApp):
         # Vérifiez que les paramètres sont du bon type
         print(f"Parameters for add_flow: priority={priority}, match={match}, actions={actions}, buffer_id={buffer_id}, idle_timeout={idle_timeout}")
 
+        # Validation des types
+        if not isinstance(priority, int) or priority < 0:
+            print(f"Invalid priority: {priority}")
+            return
+
+        if buffer_id is not None and not isinstance(buffer_id, int):
+            print(f"Invalid buffer_id: {buffer_id}. It must be an integer or None.")
+            return
+
+        if idle_timeout is not None and not isinstance(idle_timeout, int):
+            print(f"Invalid idle_timeout: {idle_timeout}. It must be an integer or None.")
+            return
+
         try:
             # Créer le flux avec un identifiant de tampon si fourni
             if buffer_id is not None:
