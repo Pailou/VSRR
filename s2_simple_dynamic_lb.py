@@ -7,16 +7,17 @@ from ryu.base import app_manager
 from ryu.controller import ofp_event
 from ryu.controller.handler import CONFIG_DISPATCHER, MAIN_DISPATCHER
 from ryu.controller.handler import set_ev_cls
+from ryu.ofproto import ofproto_v1_3
 from ryu.lib.packet import packet
 from ryu.lib.packet import ethernet
-from ryu.ofproto import ofproto_v1_3
+from ryu.lib.packet import ether_types
 
-PUB_WS_IP = '10.0.0.10'
+PUB_WS_IP  = '10.0.0.10'
 PUB_WS_MAC = '00:11:22:33:44:55'
 
-WS1_IP = '10.0.0.11'
+WS1_IP  = '10.0.0.11'
 WS1_MAC = '00:00:00:00:00:11'
-WS2_IP = '10.0.0.22'
+WS2_IP  = '10.0.0.22'
 WS2_MAC = '00:00:00:00:00:22'
 
 C1_IP = '10.0.0.1'
@@ -27,77 +28,73 @@ class DynamicLB(app_manager.RyuApp):
 
     def __init__(self, *args, **kwargs):
         super(DynamicLB, self).__init__(*args, **kwargs)
-        self.servers = {WS1_IP: WS1_MAC, WS2_IP: WS2_MAC}
-        self.client_requests = {C1_IP: None, C2_IP: None}
-
-    @set_ev_cls(ofp_event.EventOFPStateChange, MAIN_DISPATCHER)
-    def state_change_handler(self, ev):
-        datapath = ev.datapath  # Correctement obtenir le datapath
-        self.logger.info("State change for datapath: %s", datapath.id)
-
-        # Logique pour gérer le changement d'état des serveurs
-        # (ajoutez ici votre logique pour activer ou désactiver des serveurs)
+        self.token = 1  # 1 for WS1, 2 for WS2
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
         datapath = ev.msg.datapath
-        ofproto = datapath.ofproto
-        parser = datapath.ofproto_parser
-
-        # Control only S2
         if datapath.id != 2:
             return
 
-        # Ajouter des règles pour C1 ---> WS1
-        match1 = parser.OFPMatch(
-            in_port=1, eth_type=0x0800, ipv4_dst=PUB_WS_IP, ipv4_src=C1_IP
-        )
-        actions1 = [
-            parser.OFPActionSetField(eth_dst=WS1_MAC),
-            parser.OFPActionSetField(ipv4_dst=WS1_IP),
-            parser.OFPActionOutput(2)
-        ]
-        self.add_flow(datapath, 1, match1, actions1)
+    @set_ev_cls(ofp_event.EventOFPStateChange, [MAIN_DISPATCHER])
+    def state_change_handler(self, ev):
+        datapath = ev.msg.datapath
+
+    @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
+    def packet_in_handler(self, ev):
+        msg = ev.msg
+        datapath = msg.datapath
+        in_port = msg.match['in_port']
+        pkt = packet.Packet(msg.data)
+        eth = pkt.get_protocol(ethernet.ethernet)
         
-        # Ajouter des règles pour WS1 ---> C1
-        match2 = parser.OFPMatch(
-            in_port=2, eth_type=0x0800, ipv4_src=WS1_IP, ipv4_dst=C1_IP
-        )
-        actions2 = [
-            parser.OFPActionSetField(eth_src=PUB_WS_MAC),
-            parser.OFPActionSetField(ipv4_src=PUB_WS_IP),
-            parser.OFPActionOutput(1)
-        ]
-        self.add_flow(datapath, 1, match2, actions2)
+        if eth.ethertype == ether_types.ETH_TYPE_IPV4:
+            ipv4 = pkt.get_protocol(ipv4.ipv4)
+            if ipv4.dst == PUB_WS_IP:
+                self.handle_dynamic_lb(datapath, in_port, ipv4.src)
 
-        # Ajouter des règles pour C2 ---> WS2
-        match3 = parser.OFPMatch(
-            in_port=1, eth_type=0x0800, ipv4_dst=PUB_WS_IP, ipv4_src=C2_IP
-        )
-        actions3 = [
-            parser.OFPActionSetField(eth_dst=WS2_MAC),
-            parser.OFPActionSetField(ipv4_dst=WS2_IP),
-            parser.OFPActionOutput(3)
-        ]
-        self.add_flow(datapath, 1, match3, actions3)
+    def handle_dynamic_lb(self, datapath, in_port, src_ip):
+        if self.token == 1:
+            dst_mac = WS1_MAC
+            dst_ip = WS1_IP
+            output_port = 2
+        else:
+            dst_mac = WS2_MAC
+            dst_ip = WS2_IP
+            output_port = 3
 
-        # Ajouter des règles pour WS2 ---> C2
-        match4 = parser.OFPMatch(
-            in_port=3, eth_type=0x0800, ipv4_src=WS2_IP, ipv4_dst=C2_IP
+        # Add flow entry for subsequent packets
+        match = datapath.ofproto_parser.OFPMatch(
+            in_port=in_port, eth_type=0x0800, ipv4_src=src_ip, ipv4_dst=PUB_WS_IP
         )
-        actions4 = [
-            parser.OFPActionSetField(eth_src=PUB_WS_MAC),
-            parser.OFPActionSetField(ipv4_src=PUB_WS_IP),
-            parser.OFPActionOutput(1)
+        actions = [
+            datapath.ofproto_parser.OFPActionSetField(eth_dst=dst_mac),
+            datapath.ofproto_parser.OFPActionSetField(ipv4_dst=dst_ip),
+            datapath.ofproto_parser.OFPActionOutput(output_port)
         ]
-        self.add_flow(datapath, 1, match4, actions4)
+        self.add_flow(datapath, 1, match, actions)
 
-    # Ajouter une entrée (instruction appliquer des actions) dans la table de flux 0  
+        # Update the token for the next flow
+        self.token = 1 if self.token == 2 else 2
+
+        # Forward the packet to the appropriate server
+        self.send_packet_out(datapath, msg.data, output_port)
+
+    def send_packet_out(self, datapath, data, output_port):
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
+        actions = [parser.OFPActionOutput(output_port)]
+        out = parser.OFPPacketOut(datapath=datapath, buffer_id=ofproto.OFP_NO_BUFFER,
+                                   in_port=ofproto.OFPP_CONTROLLER, actions=actions, data=data)
+        datapath.send_msg(out)
+
+    # Add entry (instruction apply actions) in flow table 0  
     def add_flow(self, datapath, priority, match, actions, buffer_id=None):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
 
-        inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS, actions)]
+        inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS,
+                                             actions)]
         if buffer_id:
             mod = parser.OFPFlowMod(datapath=datapath, buffer_id=buffer_id,
                                     priority=priority, match=match,
